@@ -44,9 +44,10 @@ A full-stack DBMS mini-project built with **PostgreSQL**, **Node.js (Express)**,
 - **`car_brands`**: Reference catalog of car manufacturers (`brand_id`, `brand_name`, `country`).
 - **`cars`**: Vehicles linked to owners (`car_id`, `customer_id`, `brand_id`, `model`, `registration_number`, `manufacturing_year`, `fuel_type`).
 - **`service_catalog`**: Service offerings & pricing (`service_id`, `service_name`, `description`, `base_price`, `estimated_duration`).
-- **`service_bookings`**: Service appointments (`booking_id`, `customer_id`, `car_id`, `service_id`, `booking_date`, `booking_time`, `odometer_reading`, `booking_status`, `booking_price`).
+- **`mechanics`**: Certified workshop technicians (`mechanic_id`, `name`, `phone`, `specialization`, `experience_years`, `shift`, `is_available`).
+- **`service_bookings`**: Service appointments (`booking_id`, `customer_id`, `car_id`, `service_id`, `mechanic_id`, `booking_date`, `booking_time`, `odometer_reading`, `booking_status`, `booking_price`).
 - **`payments`**: Billing & payment tracking (`payment_id`, `booking_id`, `amount`, `payment_status`, `payment_method`, `payment_date`).
-- **`booking_details`**: Relational view combining all 6 entities for streamlined reporting.
+- **`booking_details`**: Relational view combining all 7 entities for streamlined reporting.
 
 ---
 

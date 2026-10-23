@@ -155,6 +155,113 @@ UPDATE payments
 SET payment_status = 'Unpaid', payment_date = NULL
 WHERE booking_id = 21 AND payment_status = 'Paid';
 
+
+-- 5. MECHANICS MODULE: CREATE TABLE & ASSIGN TO PAST BOOKINGS ONLY
+CREATE TABLE IF NOT EXISTS mechanics (
+    mechanic_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    phone VARCHAR(20) NOT NULL UNIQUE,
+    specialization VARCHAR(100) NOT NULL,
+    experience_years INT CHECK (experience_years >= 0),
+    shift VARCHAR(20) DEFAULT 'Morning',
+    is_available BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert 30 Workshop Mechanics
+INSERT INTO mechanics (name, phone, specialization, experience_years, shift) VALUES
+('Ramesh Kumar', '9871100001', 'Engine & Powertrain', 12, 'Morning'),
+('Suresh Patil', '9871100002', 'Brake Systems & Suspension', 9, 'Morning'),
+('Anil Verma', '9871100003', 'Auto Electrical & Diagnostics', 7, 'Morning'),
+('Sunil Shinde', '9871100004', 'Transmission & Clutch', 11, 'Morning'),
+('Manoj Yadav', '9871100005', 'AC & Climate Control', 8, 'Morning'),
+('Rajesh Chauvan', '9871100006', 'Periodic Maintenance', 5, 'Morning'),
+('Deepak Sharma', '9871100007', 'Engine & Powertrain', 10, 'Morning'),
+('Vinod Joshi', '9871100008', 'Wheel Alignment & Tires', 6, 'Morning'),
+('Pankaj Tiwari', '9871100009', 'Body Detailing & Coating', 4, 'Morning'),
+('Santosh Nair', '9871100010', 'Brake Systems & Suspension', 8, 'Morning'),
+('Mukesh Gupta', '9871100011', 'Auto Electrical & Diagnostics', 9, 'Morning'),
+('Dinesh Kulkarni', '9871100012', 'Transmission & Clutch', 13, 'Morning'),
+('Gopal Mishra', '9871100013', 'AC & Climate Control', 7, 'Morning'),
+('Harish Rao', '9871100014', 'Periodic Maintenance', 4, 'Morning'),
+('Mahesh Deshmukh', '9871100015', 'Engine & Powertrain', 14, 'Morning'),
+('Praveen Reddy', '9871100016', 'Brake Systems & Suspension', 6, 'Evening'),
+('Kishore Hegde', '9871100017', 'Auto Electrical & Diagnostics', 8, 'Evening'),
+('Vijay Singh', '9871100018', 'Transmission & Clutch', 10, 'Evening'),
+('Ashok Shetty', '9871100019', 'AC & Climate Control', 5, 'Evening'),
+('Bhaskar Iyer', '9871100020', 'Periodic Maintenance', 3, 'Evening'),
+('Chetan Bhat', '9871100021', 'Engine & Powertrain', 9, 'Evening'),
+('Hemant Gaikwad', '9871100022', 'Wheel Alignment & Tires', 7, 'Evening'),
+('Jagdish Pandey', '9871100023', 'Body Detailing & Coating', 6, 'Evening'),
+('Kamlesh Solanki', '9871100024', 'Brake Systems & Suspension', 11, 'Evening'),
+('Lalit Choudhury', '9871100025', 'Auto Electrical & Diagnostics', 8, 'Evening'),
+('Nitin Saxena', '9871100026', 'Transmission & Clutch', 5, 'Evening'),
+('Pradeep More', '9871100027', 'AC & Climate Control', 9, 'Evening'),
+('Raju Pawar', '9871100028', 'Periodic Maintenance', 4, 'Evening'),
+('Satish Pillai', '9871100029', 'Engine & Powertrain', 15, 'Evening'),
+('Umesh Gokhale', '9871100030', 'Brake Systems & Suspension', 7, 'Evening')
+ON CONFLICT (phone) DO NOTHING;
+
+-- Link mechanic_id Foreign Key
+ALTER TABLE service_bookings 
+ADD COLUMN IF NOT EXISTS mechanic_id INT REFERENCES mechanics(mechanic_id) ON DELETE SET NULL;
+
+-- Assign mechanics to past bookings
+UPDATE service_bookings
+SET mechanic_id = ((booking_id % 30) + 1)
+WHERE booking_date < CURRENT_DATE 
+  AND notes NOT LIKE 'Scenario Demo: Upcoming appointment%'
+  AND booking_id <> 21;
+
+-- Ensure upcoming appointments do NOT have a mechanic assigned
+UPDATE service_bookings
+SET mechanic_id = NULL
+WHERE notes LIKE 'Scenario Demo: Upcoming appointment%' 
+   OR booking_id = 21 
+   OR booking_date >= CURRENT_DATE;
+
+-- Update View
+DROP VIEW IF EXISTS booking_details;
+CREATE VIEW booking_details AS
+SELECT b.booking_id,
+  c.customer_id,
+  c.name AS customer_name,
+  c.email AS customer_email,
+  c.phone AS customer_phone,
+  c.city AS customer_city,
+  cr.car_id,
+  cb.brand_id,
+  cb.brand_name,
+  cr.model AS car_model,
+  cr.registration_number,
+  cr.manufacturing_year,
+  cr.fuel_type,
+  s.service_id,
+  s.service_name,
+  s.estimated_duration,
+  b.booking_date,
+  b.booking_time,
+  b.odometer_reading,
+  b.notes,
+  b.booking_price,
+  b.booking_status,
+  m.mechanic_id,
+  m.name AS mechanic_name,
+  m.specialization AS mechanic_specialization,
+  p.payment_id,
+  p.amount AS payment_amount,
+  p.payment_status,
+  p.payment_method,
+  p.payment_date,
+  b.created_at
+FROM service_bookings b
+JOIN customers c ON b.customer_id = c.customer_id
+JOIN cars cr ON b.car_id = cr.car_id
+JOIN car_brands cb ON cr.brand_id = cb.brand_id
+JOIN service_catalog s ON b.service_id = s.service_id
+LEFT JOIN mechanics m ON b.mechanic_id = m.mechanic_id
+LEFT JOIN payments p ON b.booking_id = p.booking_id;
+
 COMMIT;
 
 -- ============================================================================
