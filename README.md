@@ -20,7 +20,7 @@ A full-stack DBMS mini-project built with **PostgreSQL**, **Node.js (Express)**,
 │   ├── app.js               # Express API endpoints & business logic
 │   ├── db.js                # PostgreSQL connection pool configuration
 │   ├── seed_500.js          # Bulk data seeder (~500 realistic records)
-│   ├── .env.example         # Environment template
+│   ├── .env                 # Environment configuration
 │   └── package.json
 │
 ├── frontend/
@@ -30,7 +30,6 @@ A full-stack DBMS mini-project built with **PostgreSQL**, **Node.js (Express)**,
 │   └── package.json
 │
 ├── database/
-│   ├── demo_queries.sql     # 20 comprehensive viva demonstration queries
 │   └── seed_scenarios.sql   # Idempotent scenario seed script
 │
 ├── .gitignore
@@ -90,8 +89,7 @@ npm run dev
 
 ---
 
-## 📊 SQL Demonstration Queries
+## 📊 Database Scripts
 
 The `database/` directory contains:
-- **`database/demo_queries.sql`**: 20 demonstration queries covering joins, aggregations, CTEs, window functions (`DENSE_RANK()`, running revenue), date arithmetic, and cohort comparisons.
 - **`database/seed_scenarios.sql`**: Safe, idempotent script to inject sample records for edge scenarios (multi-car owners, cancelled bookings, future appointments).

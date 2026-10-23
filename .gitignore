@@ -20,3 +20,6 @@ pnpm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local query files
+database/demo_queries.sql
