@@ -93,11 +93,9 @@ const Icons = {
 
 /* ── Staff navigation items ────────────────────────────────────────── */
 const STAFF_NAV = [
-  { id: "dashboard", label: "Overview",            icon: Icons.home },
-  { id: "customer",  label: "Register Customer",   icon: Icons.user },
-  { id: "car",       label: "Register Car",        icon: Icons.car },
-  { id: "booking",   label: "Create Service Order",icon: Icons.wrench },
-  { id: "records",   label: "All Master Records",  icon: Icons.table },
+  { id: "dashboard",       label: "Overview",          icon: Icons.home },
+  { id: "assign-mechanic", label: "Assign Mechanic",   icon: Icons.wrench },
+  { id: "records",         label: "All Master Records",icon: Icons.table },
 ];
 
 /* ── Customer navigation items ─────────────────────────────────────── */
@@ -141,7 +139,11 @@ export default function App() {
   const [cars, setCars]           = useState([]);
   const [brands, setBrands]       = useState([]);
   const [services, setServices]   = useState([]);
-  const [records, setRecords]     = useState({ customers: [], cars: [], bookings: [] });
+  const [mechanics, setMechanics] = useState([]);
+  const [records, setRecords]     = useState({ customers: [], cars: [], bookings: [], mechanics: [] });
+  const [selectedMechanicMap, setSelectedMechanicMap] = useState({});
+  const [mechanicFilter, setMechanicFilter] = useState("unassigned");
+  const [mechanicSearch, setMechanicSearch] = useState("");
 
   // Customer Portal State
   const [loggedInCustomer, setLoggedInCustomer] = useState(null);
@@ -164,18 +166,20 @@ export default function App() {
   const loadStaffData = useCallback(async () => {
     setLoading(true);
     try {
-      const [cList, carList, bList, sList, recs] = await Promise.all([
+      const [cList, carList, bList, sList, recs, mList] = await Promise.all([
         request("/customers"),
         request("/cars"),
         request("/brands"),
         request("/services"),
         request("/records"),
+        request("/mechanics"),
       ]);
       setCustomers(cList);
       setCars(carList);
       setBrands(bList);
       setServices(sList);
       setRecords(recs);
+      setMechanics(mList);
     } catch (err) {
       showToast("error", err.message);
     } finally {
@@ -288,6 +292,50 @@ export default function App() {
     } catch (err) {
       showToast("error", err.message);
     }
+  }
+
+  // Handle Staff assigning or unassigning a mechanic
+  async function handleAssignMechanic(bookingId, mechanicId) {
+    setSubmitting(true);
+    try {
+      const res = await request(`/bookings/${bookingId}/assign-mechanic`, {
+        method: "PUT",
+        body: JSON.stringify({ mechanic_id: mechanicId }),
+      });
+      showToast("success", res.message || "Mechanic assignment updated successfully!");
+      // clear temporary selection for this booking
+      setSelectedMechanicMap(prev => {
+        const next = { ...prev };
+        delete next[bookingId];
+        return next;
+      });
+      await loadStaffData();
+    } catch (err) {
+      showToast("error", err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Handle Quick Assign Form Submission
+  async function handleAssignFormSubmit(e) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const bookingId = formData.get("booking_id");
+    const mechanicId = formData.get("mechanic_id");
+
+    if (!bookingId) {
+      showToast("error", "Please select a booking to assign.");
+      return;
+    }
+    if (!mechanicId) {
+      showToast("error", "Please select a mechanic.");
+      return;
+    }
+
+    await handleAssignMechanic(bookingId, mechanicId);
+    form.reset();
   }
 
   // Handle Customer Service Booking
@@ -701,6 +749,7 @@ export default function App() {
                                 <th>Vehicle</th>
                                 <th>Service</th>
                                 <th>Date & Time</th>
+                                <th>Assigned Mechanic</th>
                                 <th>Status</th>
                                 <th>Payment</th>
                                 <th>Amount</th>
@@ -720,6 +769,16 @@ export default function App() {
                                     {String(b.booking_date).slice(0, 10)}
                                     <br />
                                     <small className="muted">{b.booking_time}</small>
+                                  </td>
+                                  <td>
+                                    {b.mechanic_name ? (
+                                      <div className="mechanic-info-cell">
+                                        <span className="mechanic-name-tag">{b.mechanic_name}</span>
+                                        <span className="mechanic-spec-tag">{b.mechanic_specialization}</span>
+                                      </div>
+                                    ) : (
+                                      <span className="badge badge-yellow">Assigned soon</span>
+                                    )}
                                   </td>
                                   <td><StatusBadge value={b.booking_status} /></td>
                                   <td><StatusBadge value={b.payment_status || "Unpaid"} /></td>
@@ -846,19 +905,27 @@ export default function App() {
         </div>
 
         <nav className="sidebar-nav">
-          {STAFF_NAV.map(({ id, label, icon }) => (
-            <button
-              key={id}
-              className={`nav-item ${activeTab === id ? "active" : ""}`}
-              onClick={() => {
-                setActiveTab(id);
-                setSidebarOpen(false);
-              }}
-            >
-              <span className="nav-icon">{icon}</span>
-              <span>{label}</span>
-            </button>
-          ))}
+          {STAFF_NAV.map(({ id, label, icon }) => {
+            const unassignedCount = records.bookings ? records.bookings.filter(b => !b.mechanic_id).length : 0;
+            return (
+              <button
+                key={id}
+                className={`nav-item ${activeTab === id ? "active" : ""}`}
+                onClick={() => {
+                  setActiveTab(id);
+                  setSidebarOpen(false);
+                }}
+              >
+                <span className="nav-icon">{icon}</span>
+                <span style={{ flex: 1 }}>{label}</span>
+                {id === "assign-mechanic" && unassignedCount > 0 && (
+                  <span className="badge badge-orange" style={{ fontSize: "0.72rem", padding: "2px 7px" }}>
+                    {unassignedCount} new
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">
@@ -878,7 +945,7 @@ export default function App() {
           </button>
           <div className="topbar-title">
             <span className="admin-badge">Staff Only</span>{" "}
-            {STAFF_NAV.find(n => n.id === activeTab)?.label}
+            {activeTab === "assign-mechanic" ? "Assign Mechanic for New Bookings" : STAFF_NAV.find(n => n.id === activeTab)?.label}
           </div>
           <button className="btn-refresh" onClick={loadStaffData}>
             <span className="btn-icon">{Icons.refresh}</span> Refresh All
@@ -939,7 +1006,7 @@ export default function App() {
                       <table>
                         <thead>
                           <tr>
-                            <th>#</th><th>Customer</th><th>Car</th><th>Service</th><th>Date</th><th>Status</th><th>Price</th><th>Action</th>
+                            <th>#</th><th>Customer</th><th>Car</th><th>Service</th><th>Date</th><th>Mechanic</th><th>Status</th><th>Price</th><th>Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -950,6 +1017,20 @@ export default function App() {
                               <td><code className="reg-no">{b.registration_no}</code></td>
                               <td>{b.service_name}</td>
                               <td>{String(b.booking_date).slice(0, 10)}</td>
+                              <td>
+                                {b.mechanic_name ? (
+                                  <span className="mechanic-name-tag">{b.mechanic_name}</span>
+                                ) : (
+                                  <button
+                                    className="badge badge-orange"
+                                    style={{ border: "none", cursor: "pointer" }}
+                                    onClick={() => setActiveTab("assign-mechanic")}
+                                    title="Click to Assign Mechanic"
+                                  >
+                                    + Assign
+                                  </button>
+                                )}
+                              </td>
                               <td><StatusBadge value={b.booking_status} /></td>
                               <td className="td-price">₹{Number(b.booking_price).toLocaleString("en-IN")}</td>
                               <td>
@@ -983,147 +1064,281 @@ export default function App() {
                 </div>
               )}
 
-              {/* STAFF: REGISTER CUSTOMER */}
-              {activeTab === "customer" && (
-                <div className="form-page">
-                  <div className="page-header">
-                    <div>
-                      <h1 className="page-title">Register New Customer</h1>
-                      <p className="page-sub">Add a client profile to the PostgreSQL database.</p>
-                    </div>
-                  </div>
-                  <div className="form-card">
-                    <form onSubmit={e => handleStaffSubmit(e, "/customers")} className="form-grid">
-                      <Field label="Full Name *">
-                        <input name="full_name" required maxLength="150" placeholder="e.g. Ramesh Kumar" />
-                      </Field>
-                      <Field label="Email Address *">
-                        <input name="email" type="email" required placeholder="ramesh@gmail.com" />
-                      </Field>
-                      <Field label="Phone Number">
-                        <input name="phone" type="tel" placeholder="9876543210" />
-                      </Field>
-                      <Field label="City">
-                        <input name="city" placeholder="e.g. Bangalore" />
-                      </Field>
-                      <div className="form-actions">
-                        <button className="btn-primary" type="submit" disabled={submitting}>
-                          {submitting ? "Saving..." : "Save Customer"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
 
-              {/* STAFF: REGISTER CAR */}
-              {activeTab === "car" && (
-                <div className="form-page">
-                  <div className="page-header">
-                    <div>
-                      <h1 className="page-title">Register Customer Car</h1>
-                      <p className="page-sub">Link a vehicle to a customer profile.</p>
-                    </div>
-                  </div>
-                  <div className="form-card">
-                    <form onSubmit={e => handleStaffSubmit(e, "/cars")} className="form-grid">
-                      <Field label="Assign Customer *">
-                        <select name="customer_id" required defaultValue="">
-                          <option value="">Select customer...</option>
-                          {customers.map(c => (
-                            <option key={c.customer_id} value={c.customer_id}>
-                              {c.name} — {c.city || "No City"}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Brand *">
-                        <select name="brand_id" required defaultValue="">
-                          <option value="">Select brand...</option>
-                          {brands.map(b => (
-                            <option key={b.brand_id} value={b.brand_id}>{b.brand_name}</option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Model *">
-                        <input name="model" required placeholder="e.g. Creta, Swift" />
-                      </Field>
-                      <Field label="Registration Number *">
-                        <input name="registration_no" placeholder="KA-05-MN-9988" required />
-                      </Field>
-                      <Field label="Manufacture Year *">
-                        <input name="manufacture_year" type="number" min="1900" max={new Date().getFullYear() + 1} required placeholder="2022" />
-                      </Field>
-                      <Field label="Fuel Type *">
-                        <select name="fuel_type" required defaultValue="">
-                          <option value="">Select fuel...</option>
-                          {["Petrol", "Diesel", "CNG", "Hybrid", "Electric"].map(f => (
-                            <option key={f} value={f}>{f}</option>
-                          ))}
-                        </select>
-                      </Field>
-                      <div className="form-actions">
-                        <button className="btn-primary" type="submit" disabled={submitting}>
-                          {submitting ? "Saving..." : "Register Car"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
+              {/* STAFF: ASSIGN MECHANIC FOR NEW BOOKINGS */}
+              {activeTab === "assign-mechanic" && (() => {
+                const allBookings = records.bookings || [];
+                const unassignedBookings = allBookings.filter(b => !b.mechanic_id);
+                const assignedBookings = allBookings.filter(b => !!b.mechanic_id);
 
-              {/* STAFF: CREATE BOOKING */}
-              {activeTab === "booking" && (
-                <div className="form-page">
-                  <div className="page-header">
-                    <div>
-                      <h1 className="page-title">Create Service Booking</h1>
-                      <p className="page-sub">Record an in-person or phone service booking.</p>
+                let filteredBookings = allBookings;
+                if (mechanicFilter === "unassigned") {
+                  filteredBookings = unassignedBookings;
+                } else if (mechanicFilter === "assigned") {
+                  filteredBookings = assignedBookings;
+                }
+
+                if (mechanicSearch.trim()) {
+                  const q = mechanicSearch.toLowerCase();
+                  filteredBookings = filteredBookings.filter(b => 
+                    String(b.booking_id).includes(q) ||
+                    (b.full_name && b.full_name.toLowerCase().includes(q)) ||
+                    (b.registration_no && b.registration_no.toLowerCase().includes(q)) ||
+                    (b.service_name && b.service_name.toLowerCase().includes(q)) ||
+                    (b.mechanic_name && b.mechanic_name.toLowerCase().includes(q)) ||
+                    (b.model && b.model.toLowerCase().includes(q))
+                  );
+                }
+
+                return (
+                  <div className="mechanic-page">
+                    <div className="page-header">
+                      <div>
+                        <h1 className="page-title">Assign Mechanic for New Bookings</h1>
+                        <p className="page-sub">
+                          Allocate qualified workshop mechanics to new and pending customer appointments.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Summary KPI Cards */}
+                    <div className="stat-grid" style={{ marginBottom: "24px" }}>
+                      <div className="stat-card" onClick={() => setMechanicFilter("unassigned")} style={{ cursor: "pointer" }}>
+                        <div className="stat-icon stat-orange">{Icons.wrench}</div>
+                        <div>
+                          <div className="stat-num">{unassignedBookings.length}</div>
+                          <div className="stat-label">Needs Mechanic (New)</div>
+                        </div>
+                      </div>
+
+                      <div className="stat-card" onClick={() => setMechanicFilter("assigned")} style={{ cursor: "pointer" }}>
+                        <div className="stat-icon stat-blue">{Icons.calendar}</div>
+                        <div>
+                          <div className="stat-num">{assignedBookings.length}</div>
+                          <div className="stat-label">Mechanics Assigned</div>
+                        </div>
+                      </div>
+
+                      <div className="stat-card">
+                        <div className="stat-icon stat-green">{Icons.users}</div>
+                        <div>
+                          <div className="stat-num">{mechanics.length}</div>
+                          <div className="stat-label">Qualified Mechanics</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Direct Assignment Card */}
+                    <div className="form-card" style={{ marginBottom: "28px" }}>
+                      <div style={{ marginBottom: "16px" }}>
+                        <h2 className="section-title" style={{ margin: 0, fontSize: "1.1rem" }}>
+                          Quick Assign Workshop Mechanic
+                        </h2>
+                        <p className="page-sub" style={{ margin: "4px 0 0" }}>
+                          Select any booking and assign an expert technician in one click.
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleAssignFormSubmit} className="form-grid">
+                        <Field label="Select Booking *">
+                          <select name="booking_id" required defaultValue="">
+                            <option value="">Select a booking to assign...</option>
+                            {unassignedBookings.length > 0 && (
+                              <optgroup label="⚠️ New / Unassigned Bookings">
+                                {unassignedBookings.map(b => (
+                                  <option key={b.booking_id} value={b.booking_id}>
+                                    #{b.booking_id} · {b.full_name} · {b.registration_no} ({b.service_name}) - {String(b.booking_date).slice(0, 10)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {assignedBookings.length > 0 && (
+                              <optgroup label="✓ Already Assigned (Reassign)">
+                                {assignedBookings.slice(0, 30).map(b => (
+                                  <option key={b.booking_id} value={b.booking_id}>
+                                    #{b.booking_id} · {b.full_name} · {b.registration_no} [Curr: {b.mechanic_name}]
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </Field>
+
+                        <Field label="Select Workshop Mechanic *">
+                          <select name="mechanic_id" required defaultValue="">
+                            <option value="">Select a mechanic...</option>
+                            {mechanics.map(m => (
+                              <option key={m.mechanic_id} value={m.mechanic_id}>
+                                {m.name} — {m.specialization} ({m.experience_years} yrs exp, {m.shift})
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+
+                        <div className="form-actions">
+                          <button className="btn-primary" type="submit" disabled={submitting}>
+                            {submitting ? "Assigning..." : "Assign Mechanic to Booking"}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Interactive Table with Filter Tabs & Search */}
+                    <div className="home-card">
+                      <div className="filter-bar">
+                        <div className="filter-tabs">
+                          <button
+                            className={`filter-pill ${mechanicFilter === "unassigned" ? "active" : ""}`}
+                            onClick={() => setMechanicFilter("unassigned")}
+                          >
+                            Needs Mechanic
+                            <span className="filter-pill-badge">{unassignedBookings.length}</span>
+                          </button>
+                          <button
+                            className={`filter-pill ${mechanicFilter === "assigned" ? "active" : ""}`}
+                            onClick={() => setMechanicFilter("assigned")}
+                          >
+                            Assigned Bookings
+                            <span className="filter-pill-badge">{assignedBookings.length}</span>
+                          </button>
+                          <button
+                            className={`filter-pill ${mechanicFilter === "all" ? "active" : ""}`}
+                            onClick={() => setMechanicFilter("all")}
+                          >
+                            All Bookings
+                            <span className="filter-pill-badge">{allBookings.length}</span>
+                          </button>
+                        </div>
+
+                        <div className="search-box">
+                          <input
+                            type="text"
+                            placeholder="Search by customer, car, or booking ID..."
+                            value={mechanicSearch}
+                            onChange={e => setMechanicSearch(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {filteredBookings.length === 0 ? (
+                        <div className="empty-box" style={{ padding: "40px 20px" }}>
+                          <p>
+                            {mechanicFilter === "unassigned"
+                              ? "🎉 All current bookings have mechanics assigned!"
+                              : "No matching bookings found."}
+                          </p>
+                          {mechanicFilter === "unassigned" && (
+                            <button 
+                              className="btn-primary" 
+                              style={{ marginTop: "12px" }}
+                              onClick={() => setMechanicFilter("all")}
+                            >
+                              View All Bookings
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Booking #</th>
+                                <th>Customer</th>
+                                <th>Vehicle</th>
+                                <th>Service</th>
+                                <th>Scheduled Slot</th>
+                                <th>Status</th>
+                                <th>Current Mechanic</th>
+                                <th>Assign / Change Mechanic</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredBookings.map(b => {
+                                const currentSelected = selectedMechanicMap[b.booking_id] ?? (b.mechanic_id ? String(b.mechanic_id) : "");
+                                return (
+                                  <tr key={b.booking_id}>
+                                    <td className="td-id">#{b.booking_id}</td>
+                                    <td>
+                                      <span className="td-bold">{b.full_name}</span>
+                                      {b.customer_phone && (
+                                        <div style={{ fontSize: "0.78rem", color: "#64748b" }}>
+                                          {b.customer_phone}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <strong>{b.brand_name} {b.model}</strong>
+                                      <br />
+                                      <code className="reg-no">{b.registration_no}</code>
+                                    </td>
+                                    <td>
+                                      <div>{b.service_name}</div>
+                                      <small className="muted">₹{Number(b.booking_price).toLocaleString("en-IN")}</small>
+                                    </td>
+                                    <td>
+                                      {String(b.booking_date).slice(0, 10)}
+                                      <br />
+                                      <small className="muted">{b.booking_time}</small>
+                                    </td>
+                                    <td><StatusBadge value={b.booking_status} /></td>
+                                    <td>
+                                      {b.mechanic_name ? (
+                                        <div className="mechanic-info-cell">
+                                          <span className="mechanic-name-tag">{b.mechanic_name}</span>
+                                          <span className="mechanic-spec-tag">{b.mechanic_specialization}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="badge badge-orange">⚠️ Needs Mechanic</span>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <div className="mechanic-assign-inline">
+                                        <select
+                                          className="select-inline-mechanic"
+                                          value={currentSelected}
+                                          onChange={e => setSelectedMechanicMap(prev => ({
+                                            ...prev,
+                                            [b.booking_id]: e.target.value
+                                          }))}
+                                        >
+                                          <option value="">Choose mechanic...</option>
+                                          {mechanics.map(m => (
+                                            <option key={m.mechanic_id} value={m.mechanic_id}>
+                                              {m.name} ({m.specialization.split("&")[0].trim()})
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <button
+                                          className="btn-assign-sm"
+                                          disabled={submitting || !currentSelected || currentSelected === String(b.mechanic_id)}
+                                          onClick={() => handleAssignMechanic(b.booking_id, currentSelected)}
+                                          title="Save Mechanic Assignment"
+                                        >
+                                          {b.mechanic_id ? "Update" : "Assign"}
+                                        </button>
+                                        {b.mechanic_id && (
+                                          <button
+                                            className="btn-unassign-sm"
+                                            disabled={submitting}
+                                            onClick={() => handleAssignMechanic(b.booking_id, null)}
+                                            title="Unassign mechanic"
+                                          >
+                                            ✕
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="form-card">
-                    <form onSubmit={e => handleStaffSubmit(e, "/bookings")} className="form-grid">
-                      <Field label="Select Registered Car *">
-                        <select name="car_id" required defaultValue="">
-                          <option value="">Select car...</option>
-                          {cars.map(c => (
-                            <option key={c.car_id} value={c.car_id}>
-                              {c.registration_no} — {c.brand_name} {c.model} · {c.full_name}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Select Service *">
-                        <select name="service_id" required defaultValue="">
-                          <option value="">Select service...</option>
-                          {services.map(s => (
-                            <option key={s.service_id} value={s.service_id}>
-                              {s.service_name} — ₹{s.base_price}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Booking Date *">
-                        <input name="booking_date" type="date" min={new Date().toLocaleDateString("en-CA")} required />
-                      </Field>
-                      <Field label="Booking Time *">
-                        <input name="booking_time" type="time" required />
-                      </Field>
-                      <Field label="Odometer (km)">
-                        <input name="odometer_km" type="number" min="0" placeholder="e.g. 42000" />
-                      </Field>
-                      <Field label="Internal / Customer Notes">
-                        <textarea name="customer_notes" rows="3" placeholder="Job card remarks..." />
-                      </Field>
-                      <div className="form-actions">
-                        <button className="btn-primary" type="submit" disabled={submitting}>
-                          {submitting ? "Creating..." : "Create Work Order"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* STAFF: MASTER RECORDS */}
               {activeTab === "records" && (
@@ -1201,7 +1416,7 @@ export default function App() {
                       <table>
                         <thead>
                           <tr>
-                            <th>#</th><th>Customer</th><th>Registration</th><th>Service</th><th>Date</th><th>Status</th><th>Price</th><th>Action</th>
+                            <th>#</th><th>Customer</th><th>Registration</th><th>Service</th><th>Date</th><th>Mechanic</th><th>Status</th><th>Price</th><th>Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1212,6 +1427,23 @@ export default function App() {
                               <td><code className="reg-no">{b.registration_no}</code></td>
                               <td>{b.service_name}</td>
                               <td>{String(b.booking_date).slice(0, 10)}</td>
+                              <td>
+                                {b.mechanic_name ? (
+                                  <div className="mechanic-info-cell">
+                                    <span className="mechanic-name-tag">{b.mechanic_name}</span>
+                                    <span className="mechanic-spec-tag">{b.mechanic_specialization}</span>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    className="badge badge-orange"
+                                    style={{ border: "none", cursor: "pointer" }}
+                                    onClick={() => setActiveTab("assign-mechanic")}
+                                    title="Click to Assign Mechanic"
+                                  >
+                                    + Assign
+                                  </button>
+                                )}
+                              </td>
                               <td><StatusBadge value={b.booking_status} /></td>
                               <td className="td-price">₹{Number(b.booking_price).toLocaleString("en-IN")}</td>
                               <td>
@@ -1235,6 +1467,41 @@ export default function App() {
                                 ) : (
                                   <span className="td-done-text">✓ Closed</span>
                                 )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Workshop Mechanics Table */}
+                  <div className="records-section">
+                    <div className="records-section-header">
+                      <span className="records-icon records-blue">{Icons.wrench}</span>
+                      <h2 className="records-section-title">All Workshop Mechanics</h2>
+                      <span className="records-count">{mechanics.length}</span>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>ID</th><th>Mechanic Name</th><th>Specialization</th><th>Contact Phone</th><th>Experience</th><th>Shift</th><th>Availability</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {mechanics.map(m => (
+                            <tr key={m.mechanic_id}>
+                              <td className="td-id">#{m.mechanic_id}</td>
+                              <td className="td-bold">{m.name}</td>
+                              <td><span className="fuel-tag">{m.specialization}</span></td>
+                              <td>{m.phone}</td>
+                              <td>{m.experience_years} Years</td>
+                              <td><span className="shift-tag">{m.shift}</span></td>
+                              <td>
+                                <span className={`badge ${m.is_available ? "badge-green" : "badge-gray"}`}>
+                                  {m.is_available ? "Available" : "On Leave"}
+                                </span>
                               </td>
                             </tr>
                           ))}
