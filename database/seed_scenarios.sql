@@ -220,6 +220,26 @@ WHERE notes LIKE 'Scenario Demo: Upcoming appointment%'
    OR booking_id = 21 
    OR booking_date >= CURRENT_DATE;
 
+-- ============================================================================
+-- PAYMENT CLEANUP: Keep only ~35,000 unpaid (future appointments + a few past)
+-- ============================================================================
+-- Mark most past unpaid payments as Paid (varied payment methods, realistic dates)
+UPDATE payments
+SET 
+    payment_status = 'Paid',
+    payment_method = CASE 
+        WHEN booking_id % 4 = 0 THEN 'UPI'
+        WHEN booking_id % 4 = 1 THEN 'Card'
+        WHEN booking_id % 4 = 2 THEN 'Cash'
+        ELSE 'Net Banking'
+    END,
+    payment_date = (CURRENT_TIMESTAMP - (random() * interval '180 days'))
+WHERE payment_status = 'Unpaid'
+  -- Preserve: future upcoming appointments
+  AND booking_id NOT IN (21, 528, 529, 530, 531)
+  -- Preserve: a few realistic past-unpaid invoices (~13,249 total)
+  AND booking_id NOT IN (17, 332, 488, 43, 138);
+
 -- Update View
 DROP VIEW IF EXISTS booking_details;
 CREATE VIEW booking_details AS
