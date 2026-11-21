@@ -82,6 +82,8 @@ app.get("/api/customer/my-data/:customerId", async (req, res) => {
           c.model,
           b.brand_name,
           sc.service_name,
+          m.name AS mechanic_name,
+          m.specialization AS mechanic_specialization,
           p.payment_status,
           p.payment_method,
           p.amount AS payment_amount
@@ -89,6 +91,7 @@ app.get("/api/customer/my-data/:customerId", async (req, res) => {
         JOIN cars c ON c.car_id = sb.car_id
         JOIN car_brands b ON b.brand_id = c.brand_id
         JOIN service_catalog sc ON sc.service_id = sb.service_id
+        LEFT JOIN mechanics m ON m.mechanic_id = sb.mechanic_id
         LEFT JOIN payments p ON p.booking_id = sb.booking_id
         WHERE sb.customer_id = $1
         ORDER BY sb.booking_id DESC
@@ -247,6 +250,18 @@ app.post("/api/cars", async (req, res) => {
   }
 });
 
+// Get all mechanics
+app.get("/api/mechanics", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM mechanics ORDER BY name ASC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get bookings with related information
 app.get("/api/bookings", async (req, res) => {
   try {
@@ -254,15 +269,22 @@ app.get("/api/bookings", async (req, res) => {
       SELECT
         sb.*,
         cu.name AS full_name,
+        cu.phone AS customer_phone,
         c.registration_number AS registration_no,
         c.model,
         b.brand_name,
-        sc.service_name
+        sc.service_name,
+        m.mechanic_id,
+        m.name AS mechanic_name,
+        m.specialization AS mechanic_specialization,
+        m.phone AS mechanic_phone,
+        m.shift AS mechanic_shift
       FROM service_bookings sb
       JOIN cars c ON c.car_id = sb.car_id
       JOIN customers cu ON cu.customer_id = sb.customer_id
       JOIN car_brands b ON b.brand_id = c.brand_id
       JOIN service_catalog sc ON sc.service_id = sb.service_id
+      LEFT JOIN mechanics m ON m.mechanic_id = sb.mechanic_id
       ORDER BY sb.booking_id DESC
     `);
 
@@ -425,10 +447,61 @@ app.put("/api/bookings/:id/status", async (req, res) => {
   }
 });
 
+// Assign or update mechanic for a service booking
+app.put("/api/bookings/:id/assign-mechanic", async (req, res) => {
+  const bookingId = Number(req.params.id);
+  const { mechanic_id } = req.body;
+
+  if (!bookingId) {
+    return res.status(400).json({ error: "Booking ID is required." });
+  }
+
+  try {
+    const mechanicIdVal = (mechanic_id === "" || mechanic_id === null || mechanic_id === undefined)
+      ? null
+      : Number(mechanic_id);
+
+    let mechanicName = null;
+    let mechanicSpec = null;
+    if (mechanicIdVal !== null) {
+      const mechCheck = await pool.query(
+        "SELECT name, specialization FROM mechanics WHERE mechanic_id = $1",
+        [mechanicIdVal]
+      );
+      if (mechCheck.rowCount === 0) {
+        return res.status(404).json({ error: "Selected mechanic was not found in records." });
+      }
+      mechanicName = mechCheck.rows[0].name;
+      mechanicSpec = mechCheck.rows[0].specialization;
+    }
+
+    const result = await pool.query(
+      `UPDATE service_bookings
+       SET mechanic_id = $1
+       WHERE booking_id = $2
+       RETURNING *`,
+      [mechanicIdVal, bookingId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Booking not found." });
+    }
+
+    res.json({
+      message: mechanicName
+        ? `Mechanic ${mechanicName} (${mechanicSpec}) assigned to Booking #${bookingId} successfully!`
+        : `Mechanic unassigned from Booking #${bookingId}.`,
+      booking: result.rows[0],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Combined records for company portal
 app.get("/api/records", async (req, res) => {
   try {
-    const [customers, cars, bookings] = await Promise.all([
+    const [customers, cars, bookings, mechanics] = await Promise.all([
       pool.query(`
         SELECT * FROM customers
         ORDER BY customer_id DESC
@@ -444,16 +517,26 @@ app.get("/api/records", async (req, res) => {
         SELECT
           sb.*,
           cu.name AS full_name,
+          cu.phone AS customer_phone,
           c.registration_number AS registration_no,
           c.model,
           b.brand_name,
-          sc.service_name
+          sc.service_name,
+          m.mechanic_id,
+          m.name AS mechanic_name,
+          m.specialization AS mechanic_specialization,
+          m.phone AS mechanic_phone
         FROM service_bookings sb
         JOIN cars c ON c.car_id = sb.car_id
         JOIN customers cu ON cu.customer_id = sb.customer_id
         JOIN car_brands b ON b.brand_id = c.brand_id
         JOIN service_catalog sc ON sc.service_id = sb.service_id
+        LEFT JOIN mechanics m ON m.mechanic_id = sb.mechanic_id
         ORDER BY sb.booking_id DESC
+      `),
+      pool.query(`
+        SELECT * FROM mechanics
+        ORDER BY mechanic_id ASC
       `),
     ]);
 
@@ -461,6 +544,7 @@ app.get("/api/records", async (req, res) => {
       customers: customers.rows,
       cars: cars.rows,
       bookings: bookings.rows,
+      mechanics: mechanics.rows,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
